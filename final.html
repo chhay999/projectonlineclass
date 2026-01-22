@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProTask Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .task-completed h3 { text-decoration: line-through; color: #9ca3af; }
+        .task-completed p { color: #d1d5db; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen py-8">
+    <div class="container mx-auto px-4 max-w-4xl">
+        <header class="mb-8 text-center">
+            <h1 class="text-4xl font-bold text-gray-800">Task Manager</h1>
+            <p class="text-gray-500 mt-2">Organize your workflow effectively</p>
+        </header>
+
+        <section class="bg-white rounded-xl shadow-sm p-6 mb-6">
+            <form id="task-form" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input type="text" id="task-title" placeholder="What needs to be done?" 
+                        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required maxlength="50">
+                    <select id="task-priority" class="w-full px-4 py-2 border rounded-lg outline-none">
+                        <option value="low">Low Priority</option>
+                        <option value="medium" selected>Medium Priority</option>
+                        <option value="high">High Priority</option>
+                    </select>
+                </div>
+                <textarea id="task-desc" placeholder="Add a description (optional)" 
+                    class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" rows="2" maxlength="200"></textarea>
+                <button type="submit" id="submit-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition-colors">
+                    Add Task
+                </button>
+            </form>
+        </section>
+
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+            <div id="filter-buttons" class="flex bg-white rounded-lg p-1 shadow-sm border">
+                <button data-filter="all" class="px-4 py-1 rounded-md bg-blue-600 text-white transition-all filter-btn">All</button>
+                <button data-filter="active" class="px-4 py-1 rounded-md hover:bg-gray-100 filter-btn">Active</button>
+                <button data-filter="completed" class="px-4 py-1 rounded-md hover:bg-gray-100 filter-btn">Completed</button>
+            </div>
+            
+            <div class="flex gap-4 text-sm font-medium">
+                <span class="text-gray-600">Total: <span id="total-count" class="text-blue-600">0</span></span>
+                <span class="text-gray-600">Active: <span id="active-count" class="text-orange-600">0</span></span>
+                <span class="text-gray-600">Done: <span id="completed-count" class="text-green-600">0</span></span>
+            </div>
+        </div>
+
+        <section id="task-list" class="space-y-4">
+            </section>
+
+        <section id="empty-state" class="text-center py-12 hidden">
+            <div class="text-5xl mb-4">📝</div>
+            <p class="text-gray-500 text-lg">No tasks match your criteria.</p>
+        </section>
+    </div>
+
+    <script >// --- State ---
+let tasks = [];
+let currentFilter = 'all';
+let editingId = null;
+
+// --- DOM Elements ---
+const taskForm = document.getElementById('task-form');
+const taskList = document.getElementById('task-list');
+const emptyState = document.getElementById('empty-state');
+const submitBtn = document.getElementById('submit-btn');
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+    loadTasks();
+    renderTasks();
+    setupEventListeners();
+});
+
+// --- Core Logic ---
+
+function loadTasks() {
+    const stored = localStorage.getItem('tasks');
+    try {
+        tasks = stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        tasks = [];
+    }
+}
+
+function saveTasks() {
+    localStorage.setItem('tasks', JSON.stringify(tasks));
+}
+
+function renderTasks() {
+    const filtered = getFilteredTasks();
+    taskList.innerHTML = '';
+
+    if (filtered.length === 0) {
+        emptyState.classList.remove('hidden');
+    } else {
+        emptyState.classList.add('hidden');
+        filtered.forEach(task => {
+            taskList.appendChild(createTaskElement(task));
+        });
+    }
+    updateStats();
+}
+
+function getFilteredTasks() {
+    if (currentFilter === 'active') return tasks.filter(t => !t.completed);
+    if (currentFilter === 'completed') return tasks.filter(t => t.completed);
+    return tasks;
+}
+
+function createTaskElement(task) {
+    const div = document.createElement('div');
+    const priorityColors = { low: 'bg-blue-100 text-blue-700', medium: 'bg-yellow-100 text-yellow-700', high: 'bg-red-100 text-red-700' };
+    
+    div.className = `bg-white rounded-lg shadow-sm p-4 border-l-4 transition-all hover:shadow-md ${task.completed ? 'task-completed border-gray-300' : 'border-blue-500'}`;
+    div.innerHTML = `
+        <div class="flex items-start gap-4">
+            <input type="checkbox" ${task.completed ? 'checked' : ''} 
+                class="w-5 h-5 mt-1 cursor-pointer accent-blue-600" data-action="toggle" data-id="${task.id}">
+            <div class="flex-1">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-lg font-semibold text-gray-800">${escapeHTML(task.title)}</h3>
+                    <span class="text-[10px] uppercase px-2 py-0.5 rounded-full font-bold ${priorityColors[task.priority]}">${task.priority}</span>
+                </div>
+                <p class="text-gray-600 text-sm mt-1">${escapeHTML(task.description || 'No description')}</p>
+                <p class="text-gray-400 text-[10px] mt-2 italic">Created: ${new Date(task.createdAt).toLocaleString()}</p>
+            </div>
+            <div class="flex flex-col gap-2">
+                <button class="text-blue-500 hover:text-blue-700 text-sm font-medium" data-action="edit" data-id="${task.id}">Edit</button>
+                <button class="text-red-500 hover:text-red-700 text-sm font-medium" data-action="delete" data-id="${task.id}">Delete</button>
+            </div>
+        </div>
+    `;
+    return div;
+}
+
+function updateStats() {
+    document.getElementById('total-count').textContent = tasks.length;
+    document.getElementById('active-count').textContent = tasks.filter(t => !t.completed).length;
+    document.getElementById('completed-count').textContent = tasks.filter(t => t.completed).length;
+}
+
+// --- Event Handlers ---
+
+function setupEventListeners() {
+    // Form Submission
+    taskForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const title = document.getElementById('task-title').value.trim();
+        const desc = document.getElementById('task-desc').value.trim();
+        const priority = document.getElementById('task-priority').value;
+
+        if (editingId) {
+            const task = tasks.find(t => t.id === editingId);
+            task.title = title;
+            task.description = desc;
+            task.priority = priority;
+            editingId = null;
+            submitBtn.textContent = 'Add Task';
+            submitBtn.classList.replace('bg-green-600', 'bg-blue-600');
+        } else {
+            tasks.push({
+                id: Date.now(),
+                title,
+                description: desc,
+                priority,
+                completed: false,
+                createdAt: new Date().toISOString()
+            });
+        }
+        
+        saveTasks();
+        renderTasks();
+        taskForm.reset();
+    });
+
+    // Filtering
+    document.getElementById('filter-buttons').addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON') {
+            currentFilter = e.target.dataset.filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.classList.add('hover:bg-gray-100');
+            });
+            e.target.classList.add('bg-blue-600', 'text-white');
+            renderTasks();
+        }
+    });
+
+    // Task Actions (Event Delegation)
+    taskList.addEventListener('click', (e) => {
+        const id = parseInt(e.target.dataset.id);
+        const action = e.target.dataset.action;
+
+        if (action === 'delete') {
+            if (confirm('Are you sure?')) {
+                tasks = tasks.filter(t => t.id !== id);
+                saveTasks();
+                renderTasks();
+            }
+        } else if (action === 'toggle') {
+            const task = tasks.find(t => t.id === id);
+            task.completed = !task.completed;
+            saveTasks();
+            renderTasks();
+        } else if (action === 'edit') {
+            const task = tasks.find(t => t.id === id);
+            document.getElementById('task-title').value = task.title;
+            document.getElementById('task-desc').value = task.description;
+            document.getElementById('task-priority').value = task.priority;
+            editingId = id;
+            submitBtn.textContent = 'Update Task';
+            submitBtn.classList.replace('bg-blue-600', 'bg-green-600');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    });
+}
+
+// Helper to prevent XSS
+function escapeHTML(str) {
+    const p = document.createElement('p');
+    p.textContent = str;
+    return p.innerHTML;
+}
+</script>
+</body>
+</html>
